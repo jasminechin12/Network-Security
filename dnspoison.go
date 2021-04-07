@@ -93,11 +93,67 @@ func main() {
 		}
 
 		for packet := range packetSource.Packets() {
-			if packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Questions
+			if questions := packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Questions; questions != nil {
+				for _, question := range questions {
+					if question.Type == layers.DNSTypeA {
+						if ipAddress, found := hostnamePairs[string(question.Name)]; found {
+							temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
+							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
+							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC = temp
+
+							temp2 := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP
+							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP = packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP
+							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP = temp2
+
+							temp3 := packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort
+							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort = packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort
+							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort = temp3
+
+							ip:= net.ParseIP(ipAddress)
+
+							answer := layers.DNSResourceRecord{Name: question.Name, Type: layers.DNSTypeA, Class: question.Class, TTL: 13, IP: ip}
+							append(packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Answers, answer)
+
+							buffer := gopacket.NewSerializeBuffer()
+							options := gopacket.SerializeOptions{}
+							gopacket.SerializeLayers(buffer, options, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4), packet.Layer(layers.LayerTypeUDP).(*layers.UDP), packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
+
+							handle.WritePacketData(buffer.Bytes())
+						}
+					}
+				}
+			}
 		}
 
 	} else {
+		for packet := range packetSource.Packets() {
+			if questions := packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Questions; questions != nil {
+				for _, question := range questions {
+					if question.Type == layers.DNSTypeA {
+							temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
+							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
+							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC = temp
 
+							temp2 := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP
+							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP = packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP
+							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP = temp2
+
+							temp3 := packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort
+							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort = packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort
+							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort = temp3
+
+							answer := layers.DNSResourceRecord{Name: question.Name, Type: layers.DNSTypeA, Class: question.Class, TTL: 13, IP: defaultInterfaceIP}
+							append(packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Answers, answer)
+
+							buffer := gopacket.NewSerializeBuffer()
+							options := gopacket.SerializeOptions{}
+							gopacket.SerializeLayers(buffer, options, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4), packet.Layer(layers.LayerTypeUDP).(*layers.UDP), packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
+
+							handle.WritePacketData(buffer.Bytes())
+					}
+				}
+			}
+		}
 	}
 
 }
