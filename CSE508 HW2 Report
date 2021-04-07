@@ -1,0 +1,20 @@
+CSE 508 HW 2 Report
+
+READING COMMAND LINE ARGUMENTS
+
+I had a for loop that went through the command-line arguments and put them into variables. Then, I opened the pcap file provided or opened the network interface to capture and applied the BPF Filter. 
+
+Note: If both -i flag and -r flags are provided, reading from a file gets priority
+Note: Default interface is always the first interface in the list of interfaces on current machine
+
+
+DECODING PACKETS
+
+I created a packet data source with gopacket.NewPacketSource() and decoded it to be able to iterate through every packet and access its information
+
+PRINT PACKET INFORMATION
+
+First, I checked if it was an Ethernet packet using the isEthernet() function I created. Then, I checked if the string (if it was provided in command line) is in the packet payload. If not, nothing is printed. If the string is not provided, it proceeds to print out the desired information based on what kind of packet it is.
+
+Note: String checking is done in the innermost layer
+Note: The innermost layer's payload is the one that is printed
