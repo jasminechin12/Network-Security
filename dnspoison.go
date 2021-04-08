@@ -19,6 +19,15 @@ func getIPv4Addr(addresses []pcap.InterfaceAddress) net.IP {
 	return nil
 }
 
+func getIPv4Address(addresses []net.Addr) net.IP {
+	for _, addr := range addresses {
+		if addr.(*net.IPNet).IP.To4() != nil {
+			return addr.(*net.IPNet).IP.To4()
+		}
+	}
+	return nil
+}
+
 func main() {
 	var interfaceArg, hostnames, expression string
 	var handle *pcap.Handle
@@ -43,6 +52,9 @@ func main() {
 		if handle, err = pcap.OpenLive(interfaceArg, 3000, true, pcap.BlockForever); err != nil {
 			panic(err)
 		}
+		ifi, _ := net.InterfaceByName(interfaceArg)
+		addresses, _ := ifi.Addrs()
+		defaultInterfaceIP = getIPv4Address(addresses)
 	} else { // if interface is not provided -> go to default interface
 		if devices, err = pcap.FindAllDevs(); err != nil {
 			panic(err)
@@ -89,7 +101,7 @@ func main() {
 			if dnsLayer := packet.Layer(layers.LayerTypeDNS); dnsLayer != nil {
 				if questions := dnsLayer.(*layers.DNS).Questions; questions != nil {
 					for _, question := range questions {
-						if question.Type == layers.DNSTypeA {
+						if question.Type == layers.DNSTypeA && dnsLayer.(*layers.DNS).QR == false {
 							if ipAddress, found := hostnamePairs[string(question.Name)]; found {
 								temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
 								packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
@@ -145,7 +157,7 @@ func main() {
 			if dnsLayer := packet.Layer(layers.LayerTypeDNS); dnsLayer != nil {
 				if questions := dnsLayer.(*layers.DNS).Questions; questions != nil {
 					for _, question := range questions {
-						if question.Type == layers.DNSTypeA {
+						if question.Type == layers.DNSTypeA && dnsLayer.(*layers.DNS).QR == false {
 							//println(packet.String())
 							temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
 							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
