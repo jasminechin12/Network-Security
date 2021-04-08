@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
@@ -131,8 +130,8 @@ func main() {
 									FixLengths: true,
 								}
 								gopacket.SerializeLayers(buffer, options, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4), packet.Layer(layers.LayerTypeUDP).(*layers.UDP), packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
-								fmt.Printf("Udplayer: %+v", packet.Layer(layers.LayerTypeUDP).(*layers.UDP))
-								fmt.Printf("Dnslayer: %+v", packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
+								//fmt.Printf("Udplayer: %+v", packet.Layer(layers.LayerTypeUDP).(*layers.UDP))
+								//fmt.Printf("Dnslayer: %+v", packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
 								handle.WritePacketData(buffer.Bytes())
 							}
 						}
@@ -147,7 +146,7 @@ func main() {
 				if questions := dnsLayer.(*layers.DNS).Questions; questions != nil {
 					for _, question := range questions {
 						if question.Type == layers.DNSTypeA {
-							println(packet.String())
+							//println(packet.String())
 							temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
 							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
 							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC = temp
@@ -185,8 +184,8 @@ func main() {
 								FixLengths: true,
 							}
 							gopacket.SerializeLayers(buffer, options, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4), packet.Layer(layers.LayerTypeUDP).(*layers.UDP), packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
-							fmt.Printf("Udplayer: %+v", packet.Layer(layers.LayerTypeUDP).(*layers.UDP))
-							fmt.Printf("Dnslayer: %+v", packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
+							//fmt.Printf("Udplayer: %+v", packet.Layer(layers.LayerTypeUDP).(*layers.UDP))
+							//fmt.Printf("Dnslayer: %+v", packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
 							handle.WritePacketData(buffer.Bytes())
 						}
 					}
