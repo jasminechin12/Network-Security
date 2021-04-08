@@ -2,25 +2,19 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 	"net"
 	"os"
-	"regexp"
 	"strings"
 )
 
 func getIPv4Addr(addresses []pcap.InterfaceAddress) net.IP {
-	var ipRegex, _ = regexp.Compile("^((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])(\\.(?!$)|$)){4}$")
-
-	for i := 0; i < len(addresses); i++ {
-		ipAddr := addresses[i].IP
-		//if net.ParseIP(ipAddr.String()) != nil && strings.Count(ipAddr.String(), ":") == 0 {
-		//	return ipAddr
-		//}
-		if ipRegex.MatchString(ipAddr) {
-			return ipAddr
+	for _, addr := range addresses {
+		if addr.IP.To4() != nil {
+			return addr.IP.To4()
 		}
 	}
 	return nil
@@ -47,7 +41,7 @@ func main() {
 	}
 
 	if interfaceArg != "" { // check if interface is provided
-		if handle, err = pcap.OpenLive(interfaceArg, 1600, true, pcap.BlockForever); err != nil {
+		if handle, err = pcap.OpenLive(interfaceArg, 3000, true, pcap.BlockForever); err != nil {
 			panic(err)
 		}
 	} else { // if interface is not provided -> go to default interface
@@ -56,7 +50,7 @@ func main() {
 		} else {
 			defaultInterface := devices[0]
 			defaultInterfaceIP = getIPv4Addr(defaultInterface.Addresses)
-			if handle, err = pcap.OpenLive(defaultInterface.Name, 1600, true, pcap.BlockForever); err != nil {
+			if handle, err = pcap.OpenLive(defaultInterface.Name, 3000, true, pcap.BlockForever); err != nil {
 				panic(err)
 			}
 		}
@@ -93,32 +87,54 @@ func main() {
 		}
 
 		for packet := range packetSource.Packets() {
-			if questions := packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Questions; questions != nil {
-				for _, question := range questions {
-					if question.Type == layers.DNSTypeA {
-						if ipAddress, found := hostnamePairs[string(question.Name)]; found {
-							temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
-							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
-							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC = temp
+			if dnsLayer := packet.Layer(layers.LayerTypeDNS); dnsLayer != nil {
+				if questions := dnsLayer.(*layers.DNS).Questions; questions != nil {
+					for _, question := range questions {
+						if question.Type == layers.DNSTypeA {
+							if ipAddress, found := hostnamePairs[string(question.Name)]; found {
+								temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
+								packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
+								packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC = temp
+								packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).Length = 0
 
-							temp2 := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP
-							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP = packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP
-							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP = temp2
+								temp2 := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP
+								packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP = packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP
+								packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP = temp2
+								packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).Length = 0
+								packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).Checksum = 0
 
-							temp3 := packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort
-							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort = packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort
-							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort = temp3
+								temp3 := packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort
+								packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort = packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort
+								packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort = temp3
+								packet.Layer(layers.LayerTypeUDP).(*layers.UDP).Length = 0
+								packet.Layer(layers.LayerTypeUDP).(*layers.UDP).Checksum = 0
+								packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SetNetworkLayerForChecksum(packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4))
 
-							ip:= net.ParseIP(ipAddress)
+								ip := net.ParseIP(ipAddress)
 
-							answer := layers.DNSResourceRecord{Name: question.Name, Type: layers.DNSTypeA, Class: question.Class, TTL: 13, IP: ip}
-							append(packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Answers, answer)
+								answer := layers.DNSResourceRecord{Name: question.Name, Type: layers.DNSTypeA, Class: question.Class, TTL: 13, DataLength: 4, Data: ip.To4(), IP: ip.To4()}
+								answers := make([]layers.DNSResourceRecord, 1)
+								answers[0] = answer
+								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Answers = answers
+								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).QR = true
+								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).RD = true
+								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).RA = true
+								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).ANCount = 1
+								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).ARCount = 0
 
-							buffer := gopacket.NewSerializeBuffer()
-							options := gopacket.SerializeOptions{}
-							gopacket.SerializeLayers(buffer, options, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4), packet.Layer(layers.LayerTypeUDP).(*layers.UDP), packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
+								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Authorities = make([]layers.DNSResourceRecord, 0)
+								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Additionals = make([]layers.DNSResourceRecord, 0)
 
-							handle.WritePacketData(buffer.Bytes())
+								buffer := gopacket.NewSerializeBuffer()
+								options := gopacket.SerializeOptions{
+									ComputeChecksums: true,
+									FixLengths: true,
+								}
+								gopacket.SerializeLayers(buffer, options, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4), packet.Layer(layers.LayerTypeUDP).(*layers.UDP), packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
+								fmt.Printf("Udplayer: %+v", packet.Layer(layers.LayerTypeUDP).(*layers.UDP))
+								fmt.Printf("Dnslayer: %+v", packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
+								handle.WritePacketData(buffer.Bytes())
+							}
 						}
 					}
 				}
@@ -127,29 +143,52 @@ func main() {
 
 	} else {
 		for packet := range packetSource.Packets() {
-			if questions := packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Questions; questions != nil {
-				for _, question := range questions {
-					if question.Type == layers.DNSTypeA {
+			if dnsLayer := packet.Layer(layers.LayerTypeDNS); dnsLayer != nil {
+				if questions := dnsLayer.(*layers.DNS).Questions; questions != nil {
+					for _, question := range questions {
+						if question.Type == layers.DNSTypeA {
+							println(packet.String())
 							temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
 							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
 							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC = temp
+							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).Length = 0
 
 							temp2 := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP
 							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP = packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP
 							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP = temp2
+							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).Length = 0
+							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).Checksum = 0
 
 							temp3 := packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort
 							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort = packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort
 							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort = temp3
+							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).Length = 0
+							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).Checksum = 0
+							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SetNetworkLayerForChecksum(packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4))
 
-							answer := layers.DNSResourceRecord{Name: question.Name, Type: layers.DNSTypeA, Class: question.Class, TTL: 13, IP: defaultInterfaceIP}
-							append(packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Answers, answer)
+							answer := layers.DNSResourceRecord{Name: question.Name, Type: layers.DNSTypeA, Class: question.Class, TTL: 13, DataLength: 4, Data: defaultInterfaceIP, IP: defaultInterfaceIP}
+							answers := make([]layers.DNSResourceRecord, 1)
+							answers[0] = answer
+							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Answers = answers
+							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).QR = true
+							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).RD = true
+							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).RA = true
+							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).ANCount = 1
+							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).ARCount = 0
+
+							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Authorities = make([]layers.DNSResourceRecord, 0)
+							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Additionals = make([]layers.DNSResourceRecord, 0)
 
 							buffer := gopacket.NewSerializeBuffer()
-							options := gopacket.SerializeOptions{}
+							options := gopacket.SerializeOptions{
+								ComputeChecksums: true,
+								FixLengths: true,
+							}
 							gopacket.SerializeLayers(buffer, options, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4), packet.Layer(layers.LayerTypeUDP).(*layers.UDP), packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
-
+							fmt.Printf("Udplayer: %+v", packet.Layer(layers.LayerTypeUDP).(*layers.UDP))
+							fmt.Printf("Dnslayer: %+v", packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
 							handle.WritePacketData(buffer.Bytes())
+						}
 					}
 				}
 			}
