@@ -28,6 +28,47 @@ func getIPv4Address(addresses []net.Addr) net.IP {
 	return nil
 }
 
+func sendPacket(packet gopacket.Packet, ipAddr net.IP, question layers.DNSQuestion, handle *pcap.Handle) {
+	temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
+	packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
+	packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC = temp
+	packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).Length = 0
+
+	temp2 := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP
+	packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP = packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP
+	packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP = temp2
+	packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).Length = 0
+	packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).Checksum = 0
+
+	temp3 := packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort
+	packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort = packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort
+	packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort = temp3
+	packet.Layer(layers.LayerTypeUDP).(*layers.UDP).Length = 0
+	packet.Layer(layers.LayerTypeUDP).(*layers.UDP).Checksum = 0
+	packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SetNetworkLayerForChecksum(packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4))
+
+	answer := layers.DNSResourceRecord{Name: question.Name, Type: layers.DNSTypeA, Class: question.Class, TTL: 13, DataLength: 4, Data: ipAddr, IP: ipAddr}
+	answers := make([]layers.DNSResourceRecord, 1)
+	answers[0] = answer
+	packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Answers = answers
+	packet.Layer(layers.LayerTypeDNS).(*layers.DNS).QR = true
+	packet.Layer(layers.LayerTypeDNS).(*layers.DNS).RD = true
+	packet.Layer(layers.LayerTypeDNS).(*layers.DNS).RA = true
+	packet.Layer(layers.LayerTypeDNS).(*layers.DNS).ANCount = 1
+	packet.Layer(layers.LayerTypeDNS).(*layers.DNS).ARCount = 0
+
+	packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Authorities = make([]layers.DNSResourceRecord, 0)
+	packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Additionals = make([]layers.DNSResourceRecord, 0)
+
+	buffer := gopacket.NewSerializeBuffer()
+	options := gopacket.SerializeOptions{
+		ComputeChecksums: true,
+		FixLengths: true,
+	}
+	gopacket.SerializeLayers(buffer, options, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4), packet.Layer(layers.LayerTypeUDP).(*layers.UDP), packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
+	handle.WritePacketData(buffer.Bytes())
+}
+
 func main() {
 	var interfaceArg, hostnames, expression string
 	var handle *pcap.Handle
@@ -103,48 +144,7 @@ func main() {
 					for _, question := range questions {
 						if question.Type == layers.DNSTypeA && dnsLayer.(*layers.DNS).QR == false {
 							if ipAddress, found := hostnamePairs[string(question.Name)]; found {
-								temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
-								packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
-								packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC = temp
-								packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).Length = 0
-
-								temp2 := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP
-								packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP = packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP
-								packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP = temp2
-								packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).Length = 0
-								packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).Checksum = 0
-
-								temp3 := packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort
-								packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort = packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort
-								packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort = temp3
-								packet.Layer(layers.LayerTypeUDP).(*layers.UDP).Length = 0
-								packet.Layer(layers.LayerTypeUDP).(*layers.UDP).Checksum = 0
-								packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SetNetworkLayerForChecksum(packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4))
-
-								ip := net.ParseIP(ipAddress)
-
-								answer := layers.DNSResourceRecord{Name: question.Name, Type: layers.DNSTypeA, Class: question.Class, TTL: 13, DataLength: 4, Data: ip.To4(), IP: ip.To4()}
-								answers := make([]layers.DNSResourceRecord, 1)
-								answers[0] = answer
-								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Answers = answers
-								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).QR = true
-								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).RD = true
-								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).RA = true
-								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).ANCount = 1
-								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).ARCount = 0
-
-								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Authorities = make([]layers.DNSResourceRecord, 0)
-								packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Additionals = make([]layers.DNSResourceRecord, 0)
-
-								buffer := gopacket.NewSerializeBuffer()
-								options := gopacket.SerializeOptions{
-									ComputeChecksums: true,
-									FixLengths: true,
-								}
-								gopacket.SerializeLayers(buffer, options, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4), packet.Layer(layers.LayerTypeUDP).(*layers.UDP), packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
-								//fmt.Printf("Udplayer: %+v", packet.Layer(layers.LayerTypeUDP).(*layers.UDP))
-								//fmt.Printf("Dnslayer: %+v", packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
-								handle.WritePacketData(buffer.Bytes())
+								sendPacket(packet, net.ParseIP(ipAddress).To4(), question, handle)
 							}
 						}
 					}
@@ -158,47 +158,7 @@ func main() {
 				if questions := dnsLayer.(*layers.DNS).Questions; questions != nil {
 					for _, question := range questions {
 						if question.Type == layers.DNSTypeA && dnsLayer.(*layers.DNS).QR == false {
-							//println(packet.String())
-							temp := packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC
-							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).SrcMAC = packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC
-							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).DstMAC = temp
-							packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet).Length = 0
-
-							temp2 := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP
-							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).SrcIP = packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP
-							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).DstIP = temp2
-							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).Length = 0
-							packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4).Checksum = 0
-
-							temp3 := packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort
-							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SrcPort = packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort
-							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).DstPort = temp3
-							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).Length = 0
-							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).Checksum = 0
-							packet.Layer(layers.LayerTypeUDP).(*layers.UDP).SetNetworkLayerForChecksum(packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4))
-
-							answer := layers.DNSResourceRecord{Name: question.Name, Type: layers.DNSTypeA, Class: question.Class, TTL: 13, DataLength: 4, Data: defaultInterfaceIP, IP: defaultInterfaceIP}
-							answers := make([]layers.DNSResourceRecord, 1)
-							answers[0] = answer
-							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Answers = answers
-							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).QR = true
-							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).RD = true
-							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).RA = true
-							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).ANCount = 1
-							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).ARCount = 0
-
-							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Authorities = make([]layers.DNSResourceRecord, 0)
-							packet.Layer(layers.LayerTypeDNS).(*layers.DNS).Additionals = make([]layers.DNSResourceRecord, 0)
-
-							buffer := gopacket.NewSerializeBuffer()
-							options := gopacket.SerializeOptions{
-								ComputeChecksums: true,
-								FixLengths: true,
-							}
-							gopacket.SerializeLayers(buffer, options, packet.Layer(layers.LayerTypeEthernet).(*layers.Ethernet), packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4), packet.Layer(layers.LayerTypeUDP).(*layers.UDP), packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
-							//fmt.Printf("Udplayer: %+v", packet.Layer(layers.LayerTypeUDP).(*layers.UDP))
-							//fmt.Printf("Dnslayer: %+v", packet.Layer(layers.LayerTypeDNS).(*layers.DNS))
-							handle.WritePacketData(buffer.Bytes())
+							sendPacket(packet, defaultInterfaceIP, question, handle)
 						}
 					}
 				}
