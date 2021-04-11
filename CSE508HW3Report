@@ -1,0 +1,41 @@
+CSE 508 HW 3 Report
+
+READING COMMAND LINE ARGUMENTS
+
+I had a for loop that went through the command-line arguments and put them into variables. Then, I opened the file provided or opened the network interface to capture and applied the BPF Filter. 
+
+Note: If both -i flag and -r flags are provided for dnsdetect.go, reading from a file gets priority
+Note: Default interface is always the first interface in the list of interfaces on current machine
+
+
+DNSPOISON.GO
+
+If hostnames was provided, I created a map using the hostname as the key and ip as the value. For every DNS packet that was a query, I checked to see if the hostname was in the map. If it was, it would send a packet with the ip address from the map.
+
+If hostnames was NOT provided, for every DNS packet that was a query, I sent a packet with the ip address of the interface.
+
+
+DNSDETECT.GO
+
+I created a struct named packetInfo with fields TXID, Hostname, IP, Timestamp, and QR. I also created a map using a string (consisting of TXID, Hostname, IP, port and pipe character separating each - this accounts for multiple machines with packets of the same TXID) as the key and a list of packetInfo as the value. The map is used to keep track of queries and responses. 
+
+Strategy:
+For each DNS packet, if an entry existed in the map, 
+
+if it was a query and it was within 5 seconds of the previous query, a new packetInfo was created for the query and appended to the existing value of the entry. If it exceeded 5 seconds, the previous entry was deleted and a new entry was created (with a new packetInfo for the query). 
+
+If an entry was not found, a new entry was created (with a new packetInfo for the query).
+
+If it was a response and it was within 5 seconds of the last query, I checked to see if the number of queries are equal to the number of responses in the entry. If they are equal, it was flagged as an attack (because the new response made it unequal -> queries < responses). If they are not equal, a new packetInfo was created for the response and appended to the value of the entry. If it was not within 5 seconds, the response is ignored.
+
+Output on testdump.pcap:
+
+2021-04-10 12:35:18.003579  DNS poisoning attempt
+TXID 37967 Request www.tcpdump.org
+Answer1 [192.168.116.130]
+Answer2 [159.89.89.188 192.139.46.66]
+ 
+2021-04-10 12:35:23.092186  DNS poisoning attempt
+TXID 23924 Request www.tcpdump.org
+Answer1 [159.89.89.188 192.139.46.66]
+Answer2 [192.168.116.130]
