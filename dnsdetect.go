@@ -17,7 +17,7 @@ type packetInfo struct {
 	Hostname  []byte
 	IP        []net.IP
 	Timestamp time.Time
-	QR 		  bool
+	QR        bool
 }
 
 func checkNumOfQueriesAndAnswers(value []packetInfo) bool {
@@ -68,13 +68,14 @@ func getListOfIP(packet gopacket.Packet) []net.IP {
 }
 
 func printResponses(packet gopacket.Packet, query packetInfo, initialResponse packetInfo) {
-	fmt.Println(query.Timestamp.Format("2006-01-02 03:04:05.000000"), " ")
+	fmt.Println(query.Timestamp.Format("2006-01-02 03:04:05.000000"), " DNS poisoning attempt")
 	fmt.Println("TXID", initialResponse.TXID, "Request", string(initialResponse.Hostname))
 	fmt.Printf("Answer1 %+v\n", initialResponse.IP)
 
 	ipAddresses := getListOfIP(packet)
 
 	fmt.Printf("Answer2 %+v\n", ipAddresses)
+	fmt.Println(" ")
 }
 
 func main() {
@@ -156,11 +157,6 @@ func main() {
 								dnsQueries[key] = append(value, newPacket)
 							}
 						}
-						//} else {
-						//	ipAddresses := getListOfIP(packet)
-						//	newPacket := packetInfo{TXID: dnsLayer.(*layers.DNS).ID, Hostname: dnsLayer.(*layers.DNS).Questions[0].Name, IP: ipAddresses, Timestamp: packetTime, QR: true}
-						//	dnsQueries[key] = append(value, newPacket)
-						//}
 					}
 				}
 			}
