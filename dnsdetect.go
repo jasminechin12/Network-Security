@@ -17,6 +17,43 @@ type packetInfo struct {
 	Hostname  []byte
 	IP        []net.IP
 	Timestamp time.Time
+	QR 		  bool
+}
+
+func checkNumOfQueriesAndAnswers(value []packetInfo) bool {
+	queries := 0
+	answers := 0
+
+	for index := range value {
+		if value[index].QR == false {
+			queries++
+		} else {
+			answers++
+		}
+	}
+	return queries == answers
+}
+
+func getLastQuery(value []packetInfo) packetInfo {
+	var lastQuery packetInfo
+
+	for index := range value {
+		if value[index].QR == false {
+			lastQuery = value[index]
+		}
+	}
+	return lastQuery
+}
+
+func addNewQuery(dnsQueries map[string][]packetInfo, key string, value []packetInfo, dnsLayer gopacket.Layer, packetTime time.Time) {
+	newPacket := packetInfo{TXID: dnsLayer.(*layers.DNS).ID, Hostname: dnsLayer.(*layers.DNS).Questions[0].Name, Timestamp: packetTime, QR: false}
+	dnsQueries[key] = append(value, newPacket)
+}
+
+func addNewEntryAndQuery(dnsQueries map[string][]packetInfo, key string, dnsLayer gopacket.Layer, packetTime time.Time) {
+	arr := make([]packetInfo, 1)
+	arr[0] = packetInfo{TXID: dnsLayer.(*layers.DNS).ID, Hostname: dnsLayer.(*layers.DNS).Questions[0].Name, Timestamp: packetTime, QR: false}
+	dnsQueries[key] = arr
 }
 
 func getListOfIP(packet gopacket.Packet) []net.IP {
@@ -92,36 +129,38 @@ func main() {
 			if questions := dnsLayer.(*layers.DNS).Questions; questions != nil {
 				ipv4Layer := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4)
 				udpLayer := packet.Layer(layers.LayerTypeUDP).(*layers.UDP)
-				if questions[0].Type == layers.DNSTypeA && dnsLayer.(*layers.DNS).QR == false {
+				if questions[0].Type == layers.DNSTypeA && dnsLayer.(*layers.DNS).QR == false { // check if query
 					key := strconv.Itoa(int(dnsLayer.(*layers.DNS).ID)) + "|" + string(questions[0].Name) + "|" + ipv4Layer.SrcIP.String() + "|" + udpLayer.SrcPort.String()
-					if _, found := dnsQueries[key]; found {
-						delete(dnsQueries, key)
-					}
 					packetTime := packet.Metadata().Timestamp
-					arr := make([]packetInfo, 1)
-					arr[0] = packetInfo{TXID: dnsLayer.(*layers.DNS).ID, Hostname: dnsLayer.(*layers.DNS).Questions[0].Name, Timestamp: packetTime}
-					dnsQueries[key] = arr
-				} else if questions[0].Type == layers.DNSTypeA && dnsLayer.(*layers.DNS).QR == true {
+					if value, found := dnsQueries[key]; found { // check if entry exists
+						if packetTime.Sub(getLastQuery(value).Timestamp).Seconds() <= 5 { // check if new query is < 5 seconds from last query
+							addNewQuery(dnsQueries, key, value, dnsLayer, packetTime)
+						} else { // if new query > 5 seconds from last query, replace entry with new entry and query
+							delete(dnsQueries, key)
+							addNewEntryAndQuery(dnsQueries, key, dnsLayer, packetTime)
+						}
+					} else { // if entry does not exist, create new entry and query
+						addNewEntryAndQuery(dnsQueries, key, dnsLayer, packetTime)
+					}
+				} else if questions[0].Type == layers.DNSTypeA && dnsLayer.(*layers.DNS).QR == true { // check if response
 					key := strconv.Itoa(int(dnsLayer.(*layers.DNS).ID)) + "|" + string(questions[0].Name) + "|" + ipv4Layer.DstIP.String() + "|" + udpLayer.DstPort.String()
+					packetTime := packet.Metadata().Timestamp
 					if value, found := dnsQueries[key]; found {
-						if len(value) == 1 {
-							packetTime := packet.Metadata().Timestamp
-							ipAddresses := getListOfIP(packet)
-							newPacket := packetInfo{TXID: dnsLayer.(*layers.DNS).ID, Hostname: dnsLayer.(*layers.DNS).Questions[0].Name, IP: ipAddresses, Timestamp: packetTime}
-							dnsQueries[key] = append(value, newPacket)
-						} else {
-							//packetTime := packet.Metadata().Timestamp
-							//if packetTime.Sub(value.Timestamp).Seconds() <= 5 {
+						if packetTime.Sub(getLastQuery(value).Timestamp).Seconds() <= 5 { // check if within 5 seconds
+							if checkNumOfQueriesAndAnswers(value) { // check if num of queries == answers
 								printResponses(packet, value[0], value[1])
 								delete(dnsQueries, key)
-							//} else {
-							//	ipAddresses := getListOfIP(packet)
-							//	dnsQueries[key] = packetInfo{TXID: dnsLayer.(*layers.DNS).ID, Hostname: dnsLayer.(*layers.DNS).Questions[0].Name, IP: ipAddresses, Timestamp: packetTime}
-							//}
+							} else {
+								ipAddresses := getListOfIP(packet)
+								newPacket := packetInfo{TXID: dnsLayer.(*layers.DNS).ID, Hostname: dnsLayer.(*layers.DNS).Questions[0].Name, IP: ipAddresses, Timestamp: packetTime, QR: true}
+								dnsQueries[key] = append(value, newPacket)
+							}
 						}
-					//} else {
-					//	ipAddresses := getListOfIP(packet)
-					//	dnsQueries[key] = packetInfo{TXID: dnsLayer.(*layers.DNS).ID, Hostname: dnsLayer.(*layers.DNS).Questions[0].Name, IP: ipAddresses, Timestamp: packet.Metadata().Timestamp}
+						//} else {
+						//	ipAddresses := getListOfIP(packet)
+						//	newPacket := packetInfo{TXID: dnsLayer.(*layers.DNS).ID, Hostname: dnsLayer.(*layers.DNS).Questions[0].Name, IP: ipAddresses, Timestamp: packetTime, QR: true}
+						//	dnsQueries[key] = append(value, newPacket)
+						//}
 					}
 				}
 			}
