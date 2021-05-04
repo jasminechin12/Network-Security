@@ -77,7 +77,7 @@ func generateSalt () []byte {
 func writeToServer(waitTimer sync.WaitGroup, connection net.Conn, passphrase []byte) {
 	defer waitTimer.Done()
 	for {
-		buffer := make([]byte, 5000)
+		buffer := make([]byte, 2000*2000)
 		numOfBytes, err := os.Stdin.Read(buffer)
 		if err != nil { break}
 
@@ -91,7 +91,7 @@ func writeToServer(waitTimer sync.WaitGroup, connection net.Conn, passphrase []b
 func readFromServer(waitTimer sync.WaitGroup , connection net.Conn, passphrase []byte) {
 	defer waitTimer.Done()
 	for {
-		buffer := make([]byte, 5000)
+		buffer := make([]byte, 2000*2000)
 		numOfBytes, err := connection.Read(buffer)
 		if err != nil { break }
 
@@ -105,7 +105,7 @@ func readFromServer(waitTimer sync.WaitGroup , connection net.Conn, passphrase [
 func writeToDestination(waitTimer sync.WaitGroup, connection net.Conn, return_connection net.Conn, passphrase []byte) {
 	defer waitTimer.Done()
 	for {
-		buffer := make([]byte, 5000)
+		buffer := make([]byte, 2000*2000)
 		numOfBytes, err := connection.Read(buffer)
 		if err != nil { break }
 
@@ -119,7 +119,7 @@ func writeToDestination(waitTimer sync.WaitGroup, connection net.Conn, return_co
 func readFromDestination(waitTimer sync.WaitGroup, connection net.Conn, return_connection net.Conn, passphrase []byte) {
 	defer waitTimer.Done()
 	for {
-		buffer := make([]byte, 5000)
+		buffer := make([]byte, 2000*2000)
 		numOfBytes, err := return_connection.Read(buffer)
 		if err != nil { break }
 
