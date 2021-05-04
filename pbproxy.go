@@ -74,21 +74,7 @@ func generateSalt () []byte {
 	return salt
 }
 
-func readFromServer(waitTimer sync.WaitGroup ,connection net.Conn, passphrase []byte) {
-	defer waitTimer.Done()
-	for {
-		buffer := make([]byte, 5000)
-		numOfBytes, err := connection.Read(buffer)
-		if err != nil { break }
-
-		decryptedMessage := decryptMessage(buffer[:numOfBytes], passphrase)
-
-		_, err = os.Stdout.Write(decryptedMessage)
-		if err != nil { break }
-	}
-}
-
-func writeToServer(waitTimer sync.WaitGroup,connection net.Conn, passphrase []byte) {
+func writeToServer(waitTimer sync.WaitGroup, connection net.Conn, passphrase []byte) {
 	defer waitTimer.Done()
 	for {
 		buffer := make([]byte, 5000)
@@ -102,7 +88,21 @@ func writeToServer(waitTimer sync.WaitGroup,connection net.Conn, passphrase []by
 	}
 }
 
-func listenFromClient(waitTimer sync.WaitGroup, connection net.Conn, return_connection net.Conn, passphrase []byte) {
+func readFromServer(waitTimer sync.WaitGroup , connection net.Conn, passphrase []byte) {
+	defer waitTimer.Done()
+	for {
+		buffer := make([]byte, 5000)
+		numOfBytes, err := connection.Read(buffer)
+		if err != nil { break }
+
+		decryptedMessage := decryptMessage(buffer[:numOfBytes], passphrase)
+
+		_, err = os.Stdout.Write(decryptedMessage)
+		if err != nil { break }
+	}
+}
+
+func writeToDestination(waitTimer sync.WaitGroup, connection net.Conn, return_connection net.Conn, passphrase []byte) {
 	defer waitTimer.Done()
 	for {
 		buffer := make([]byte, 5000)
@@ -116,7 +116,7 @@ func listenFromClient(waitTimer sync.WaitGroup, connection net.Conn, return_conn
 	}
 }
 
-func writeToDestination(waitTimer sync.WaitGroup, connection net.Conn, return_connection net.Conn, passphrase []byte) {
+func readFromDestination(waitTimer sync.WaitGroup, connection net.Conn, return_connection net.Conn, passphrase []byte) {
 	defer waitTimer.Done()
 	for {
 		buffer := make([]byte, 5000)
@@ -134,7 +134,7 @@ func handleConnections(connection net.Conn, return_connection net.Conn, passphra
 	var waitTimer sync.WaitGroup
 	waitTimer.Add(2) // keep track of goroutines (read from client and writing to client)
 
-	go listenFromClient(waitTimer, connection, return_connection, passphrase)
+	go readFromDestination(waitTimer, connection, return_connection, passphrase)
 	go writeToDestination(waitTimer, connection, return_connection, passphrase)
 	waitTimer.Wait()
 }
