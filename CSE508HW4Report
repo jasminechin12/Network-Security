@@ -1,0 +1,19 @@
+CSE 508 HW 4 Report
+
+READING COMMAND LINE ARGUMENTS
+
+I used the flags package to get the command-line arguments and put them into variables. I prepended a colon to the port and I opened the pwdfile that was provided to get the passphrase.
+
+CLIENT MODE
+
+If listenport was not provided, the program enters client mode. I used Net.Dial() to establish a connection to destination:port. Goroutines (readFromServer() and writeToServer()) were used for simultaneous bidrectional communication. I used a WaitGroup to wait for the goroutines to finish. ReadFromServer() reads data from destination:port into a buffer. The data is decrypted with decryptMessage() using aes, cipher, and pbkdf2 packages. The decrypted data is then written to stdout. WriteToServer() reads data from stdin and encrypts the data using encryptMessage() using aes, cipher and pbkdf2 packages. The encrypted data is then written to destination:port .
+
+REVERSE-PROXY MODE
+
+If listenport is provided, the program enters reverse-proxy mode. I used Net.Listen() to listen on the listenport provided. I used Accept() on the listener for each connection and I establish a connection to destination:port. Goroutines and a waitGroup were also used for concurrent bidrectional communication. HandleConnections() is called for each connection and calls other goroutines (readFromDestination() and writeToDestination()). They work the same way as readFromServer() and writeToServer() except readFromDestination() reads from the connection from the listener and writes to destination:port and writeToDestination reads from destination:port and writes to the connection.
+
+ENCRYPTION/DECRYPTION
+
+* The salt is randomly generated using generateSalt() which uses rand.Read() from the crypto/rand package. 
+* 16 bytes were used for the salt
+* The salt and nonce size are preprended to the encrypted data to use for decryption
